@@ -1,0 +1,33 @@
+# ===================================================================
+# IDE / User-specific
+# ===================================================================
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ===================================================================
+# .NET / Visual Studio Build Artifacts
+# ===================================================================
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+
+# ===================================================================
+# Node / Angular Build Artifacts
+# ===================================================================
+/node_modules/
+/dist/
+.angular/
+npm-debug.log*
+yarn-error.log
+
+# ===================================================================
+# Secrets - VERY IMPORTANT
+# ===================================================================
+# This ensures your development secrets are not committed.
+# The path is relative to the .gitignore file.
+/ProjectTaskMaster/TaskMaster.API/appsettings.Development.json
+/ProjectTaskMaster/TaskMaster.API/appsettings.json

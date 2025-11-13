@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+option csharp_namespace = "TaskMaster.API.Protos";
+
+package reporter;
+
+service ProjectReporter{
+	rpc GetProjectSummary (ProjectSummaryRequest) returns (ProjectSummaryResponse);
+}
+
+message	ProjectSummaryRequest {
+	int32 project_id = 1;
+}
+
+message	ProjectSummaryResponse {
+	int32 project_id = 1;
+	string project_name = 2;
+	int32 total_tasks = 3;
+	int32 completed_tasks = 4;
+	int32 pending_tasks = 5;
+}

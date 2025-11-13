@@ -1,0 +1,51 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" Version="2.71.0" />
+    <PackageReference Include="Grpc.AspNetCore.Server" Version="2.71.0" />
+    <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.71.0" />
+    <PackageReference Include="Grpc.Reflection" Version="2.71.0" />
+    <PackageReference Include="HotChocolate.AspNetCore" Version="13.9.15" />
+    <PackageReference Include="HotChocolate.AspNetCore.Authorization" Version="13.9.15" />
+    <PackageReference Include="HotChocolate.Data.EntityFramework" Version="13.9.15" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="8.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.21" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.21" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.21">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="OpenIddict.AspNetCore" Version="7.1.0" />
+    <PackageReference Include="OpenIddict.Client.AspNetCore" Version="7.1.0" />
+    <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.1.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
+    <PackageReference Include="Serilog.Enrichers.Process" Version="3.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
+    <PackageReference Include="Serilog.Sinks.Seq" Version="9.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="9.0.6" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="9.0.6" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TaskMaster.Infrastructure\TaskMaster.Infrastructure.csproj" />
+  </ItemGroup>
+	
+  <ItemGroup>
+  	<Protobuf Include="Protos\reporter.proto" GrpcServices="Server" />
+  </ItemGroup>
+	
+  <ItemGroup>
+    <Folder Include="Protos\" />
+  </ItemGroup>
+
+
+
+</Project>
