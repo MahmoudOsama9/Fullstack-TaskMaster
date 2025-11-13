@@ -30,7 +30,7 @@ The backend is architected as a **polyglot API**, serving data through multiple,
 | Category          | Technology                                   |
 | ----------------- | -------------------------------------------- |
 | **Backend**       | .NET 8, C#, ASP.NET Core, Entity Framework Core |
-| **Frontend**      | Angular, TypeScript, SCSS                      |
+| **Frontend**      | Angular, TypeScript, CSS                      |
 | **Database**      | MS SQL Server                                  |
 | **API Styles**    | REST, GraphQL, gRPC, WebSockets (SignalR)      |
 | **Authentication**| JWT, Refresh Tokens, OAuth2 (Google), OpenIddict |
