@@ -1,9 +1,5 @@
 # Project TaskMaster: Full-Stack Collaborative Task Management System
 
-<p align="center">
-  <img src="https://via.placeholder.com/800x400.png/111827/FFFFFF?text=Project+TaskMaster+Screenshot" alt="Project TaskMaster Screenshot">
-  <!-- After you run the app, take a nice screenshot of your dashboard, upload it somewhere (like the GitHub repo itself), and replace the placeholder URL above! -->
-</p>
 
 ## Overview
 
