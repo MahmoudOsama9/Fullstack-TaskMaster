@@ -9,6 +9,7 @@ using TaskMaster.API.DTOs;
 using TaskMaster.API.Hubs;
 using TaskMaster.Core.Entities;
 using TaskMaster.Core.Interfaces;
+using TaskMaster.Infrastructure.Data;
 
 namespace TaskMaster.API.Controllers
 {
@@ -19,9 +20,14 @@ namespace TaskMaster.API.Controllers
     {
         private readonly IProjectRepository _projectRepository;
         private readonly IHubContext<ProjectUpdatesHub> _hubContext;
+        private readonly ILogger<ProjectsController> _logger;
+        private readonly TaskMasterDbContext _context;
 
-        public ProjectsController(IProjectRepository projectRepository, IHubContext<ProjectUpdatesHub> hubContext)
+        public ProjectsController(IProjectRepository projectRepository, IHubContext<ProjectUpdatesHub> hubContext,
+            ILogger<ProjectsController> logger, TaskMasterDbContext context)
         {
+            _logger = logger;
+            _context = context;
             _projectRepository = projectRepository;
             _hubContext = hubContext;
         }
@@ -29,157 +35,167 @@ namespace TaskMaster.API.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ProjectDto>>> GetProjects()
         {
-            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdString, out var userId))
-            {
-                return Unauthorized();
-            }
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
 
             var projects = await _projectRepository.GetProjectsAsync(userId);
 
-            var projectDtos = new List<ProjectDto>();
-            if (projects != null)
-            {
-                foreach (var p in projects)
-                {
-                    var dto = new ProjectDto(
-                        p.Id,
-                        p.Name,
-                        p.Description,
-                        p.CreatedAt,
-                        p.DueDate,
-                        p.Status,
-                        p.Tasks?.Count ?? 0
-                    );
-                    projectDtos.Add(dto);
-                }
-            }
-
-            return Ok(projectDtos);
+            var projectDTOs = projects.Select(p => MapToDto(p, userId)).ToList();
+            return Ok(projectDTOs);
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<ProjectDto>> GetProject(int id)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
             var project = await _projectRepository.GetProjectByIdAsync(id);
-            if (project == null)
+
+            if (project == null) return NotFound();
+
+            bool isOwner = project.OwnerId == userId;
+            bool isMember = project.Memberships.Any(m => m.UserId == userId);
+
+            if (!isOwner && !isMember)
             {
-                return NotFound();
+                return Forbid();
             }
-            var projectDTO = new ProjectDto(project.Id, project.Name, project.Description, project.CreatedAt, project.DueDate, project.Status, project.Tasks.Count);
-            return Ok(projectDTO);
+
+            return Ok(MapToDto(project, userId));
         }
 
         [HttpPut("{id}")]
         public async Task<ActionResult<ProjectDto>> UpdateProject(int id, UpdateProjectDto updateDto)
         {
-            // 1. Fetch the existing project from the database.
-            var projectToUpdate = await _projectRepository.GetProjectByIdAsync(id);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            if (projectToUpdate == null)
-            {
-                return NotFound($"Project with ID {id} not found.");
-            }
+            var project = await _projectRepository.GetProjectByIdAsync(id);
+            if (project == null) return NotFound();
 
-            // 2. Authorization Check: Verify the current user owns the project.
-            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (projectToUpdate.OwnerId.ToString() != userIdString)
-            {
-                return Forbid();
-            }
+            var membership = project.Memberships.FirstOrDefault(m => m.UserId == userId);
+            bool isOwner = project.OwnerId == userId;
+            bool isAdmin = membership?.Role == Core.Enums.ProjectRole.Admin;
 
-            // 3. Map changes from the DTO to the entity.
-            projectToUpdate.Name = updateDto.Name;
-            projectToUpdate.Description = updateDto.Description!;
-            projectToUpdate.DueDate = updateDto.DueDate;
-            projectToUpdate.Status = updateDto.Status;
+            if (!isOwner && !isAdmin) return Forbid();
 
-            // 4. Save the changes to the database.
-            var updatedProject = await _projectRepository.UpdateProjectAsync(projectToUpdate);
+            project.Name = updateDto.Name;
+            project.Description = updateDto.Description!;
+            project.DueDate = updateDto.DueDate;
+            project.Status = updateDto.Status;
 
-            if (updatedProject == null)
-            {
-                return StatusCode(500, "An error occurred while updating the project.");
-            }
+            var updatedProject = await _projectRepository.UpdateProjectAsync(project);
+            if (updatedProject == null) return StatusCode(500, "Error updating project.");
 
-            // 5. Map the final, updated entity to a DTO.
-            var projectDto = new ProjectDto(
-                updatedProject.Id,
-                updatedProject.Name,
-                updatedProject.Description,
-                updatedProject.CreatedAt,
-                updatedProject.DueDate,
-                updatedProject.Status,
-                updatedProject.Tasks.Count
-            );
+            var dto = MapToDto(updatedProject, userId);
 
-            // --- NEW SIGNALR BROADCAST LOGIC ---
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("ProjectDetailsUpdated", dto);
 
-            // 6. Send a targeted message with the full updated project data
-            // to any client currently in the SignalR group for this specific project.
-            await _hubContext.Clients.All.SendAsync("ProjectListShouldRefresh");
-            await _hubContext.Clients.Group(updatedProject.Id.ToString())
-                .SendAsync("ProjectDetailsUpdated", projectDto);
-
-            // 7. Send a general message to ALL connected clients, telling them
-            // that the project list is now stale and should be refreshed.
-            await _hubContext.Clients.All.SendAsync("ProjectListShouldRefresh");
-
-            // --- END OF SIGNALR LOGIC ---
-
-            // 8. Return a 200 OK response with the updated project data to the original caller.
-            return Ok(projectDto);
+            return Ok(dto);
         }
 
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteProject(int id)
         {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
             var project = await _projectRepository.GetProjectByIdAsync(id);
             if (project == null) return NotFound();
-            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (project.OwnerId.ToString() != userIdString)
-            {
-                return Forbid();
-            }
+
+            if (project.OwnerId != userId) return Forbid();
 
             await _projectRepository.DeleteProjectAsync(id);
 
-            await _hubContext.Clients.All.SendAsync("ProjectListShouldRefresh");
-
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("ProjectDeleted", id);
 
             return NoContent();
         }
 
         [HttpPost]
-        public async Task<ActionResult<ProjectDto>> CreateProject(CreateProjectDto createProjectDTO)
+        public async Task<ActionResult<ProjectDto>> CreateProject(CreateProjectDto createProjectDto)
         {
-            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdString, out var userId))
-            {
-                return Unauthorized();
-            }
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
             var newProject = new Project
             {
-                Name = createProjectDTO.Name,
-                Description = createProjectDTO.Description!,
-                DueDate = createProjectDTO.DueDate,
-                OwnerId = userId
+                Name = createProjectDto.Name,
+                Description = createProjectDto.Description!,
+                DueDate = createProjectDto.DueDate,
+                OwnerId = userId,
+                Status = "NotStarted",
+                CreatedAt = DateTime.UtcNow
             };
 
             var createdProject = await _projectRepository.AddProjectAsync(newProject);
 
-            var createdProjectDTO = new ProjectDto(createdProject.Id, createdProject.Name, createdProject.Description, createdProject.CreatedAt, createdProject.DueDate, createdProject.Status, 0);
+            await _hubContext.Clients.User(userId.ToString()).SendAsync("ProjectListShouldRefresh");
 
-            await _hubContext.Clients.All.SendAsync("ProjectListShouldRefresh");
+            var membersDto = new List<ProjectMemberDto>
+            {
+                new ProjectMemberDto(createdProject.OwnerId, User.Identity?.Name ?? "Owner", "Owner")
+            };
 
-            return CreatedAtAction(nameof(GetProjects), new { id = createdProjectDTO.Id }, createdProjectDTO);
+            var dto = new ProjectDto(
+                createdProject.Id, 
+                createdProject.Name, 
+                createdProject.Description,
+                createdProject.CreatedAt, 
+                createdProject.DueDate, 
+                createdProject.Status,
+                0, 
+                0, 
+                0, 
+                "Owner", 
+                membersDto,
+                false
+            );
+
+            return CreatedAtAction(nameof(GetProject), new { id = createdProject.Id }, dto);
         }
-        //[HttpPut("tasks/{taskId}/status")]
-        //public async Task<IActionResult> UpdateTaskStatus(int taskId, [FromBody] string newStatus)
-        //{
-            
-        //}
+
+        private ProjectDto MapToDto(Project p, int userId)
+        {
+            var totalTasks = p.Tasks?.Count ?? 0;
+            var completedTasks = p.Tasks?.Count(t => t.Status == "Completed") ?? 0;
+            var progress = totalTasks == 0 ? 0 : (int)((double)completedTasks / totalTasks * 100);
+
+            string role = "Viewer";
+            if (p.OwnerId == userId) role = "Owner";
+            else
+            {
+                var membership = p.Memberships?.FirstOrDefault(m => m.UserId == userId);
+                if (membership != null) role = membership.Role.ToString();
+            }
+
+            var membersDto = new List<ProjectMemberDto>();
+
+            if (p.Owner != null)
+            {
+                membersDto.Add(new ProjectMemberDto(p.OwnerId, p.Owner.Name, "Owner"));
+            }
+
+            if (p.Memberships != null)
+            {
+                foreach (var m in p.Memberships)
+                {
+                    var name = m.User?.Name ?? "Unknown";
+                    membersDto.Add(new ProjectMemberDto(m.UserId, name, m.Role.ToString()));
+                }
+            }
+
+            return new ProjectDto(
+                p.Id, 
+                p.Name, 
+                p.Description, 
+                p.CreatedAt, 
+                p.DueDate, 
+                p.Status,
+                totalTasks, 
+                completedTasks, 
+                progress, 
+                role,
+                membersDto,
+                false
+            );
+        }
     }
 }

@@ -17,6 +17,7 @@ namespace TaskMaster.Core.Entities
         public string Status { get; set; } = Stage.NotStarted.ToString();
         public int Priority { get; set; } = 3;
 
+        public ICollection<TaskNote> Notes { get; set; } = new List<TaskNote>();
         public int ProjectId { get; set; }
         public Project Project { get; set; } = default!;
         public int? AssignedToUserId { get; set; }

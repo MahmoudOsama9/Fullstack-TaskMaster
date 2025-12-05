@@ -21,5 +21,10 @@ namespace TaskMaster.Infrastructure.Data
         public DbSet<Project> Projects { get; set; } = default!;
         public DbSet<TaskItem> TaskItems { get; set; } = default!;
         public DbSet<Team> Teams { get; set; } = default!;
+        public DbSet<ProjectMember> ProjectMembers { get; set; }
+        public DbSet<ProjectInvitation> ProjectInvitations { get; set; }
+        public DbSet<TaskNote> TaskNotes { get; set; }
+        public DbSet<ChatMessage> ChatMessages { get; set; }
+        public DbSet<ChatReadState> ChatReadStates { get; set; }
     }
 }

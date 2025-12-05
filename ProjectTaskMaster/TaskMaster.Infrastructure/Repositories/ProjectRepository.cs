@@ -39,30 +39,26 @@ namespace TaskMaster.Infrastructure.Repositories
         public async Task<IEnumerable<Project>> GetProjectsAsync(int userId)
         {
             return await _context.Projects
-            .AsNoTracking()
-            .Include(p => p.Tasks)
-            .Where(p =>
-                p.OwnerId == userId
-                ||
-                p.Teams.Any(t => t.Members.Any(m => m.Id == userId))
-            )
-            .ToListAsync();
+        .AsNoTracking()
+        .Include(p => p.Tasks)
+        .Include(p => p.Memberships)
+        .Where(p =>
+            p.OwnerId == userId ||
+            p.Memberships.Any(m => m.UserId == userId)
+        )
+        .ToListAsync();
         }
 
 
         public async Task<Project?> GetProjectByIdAsync(int projectId)
         {
-            var project = await _context.Projects.FindAsync(projectId);
-
-            if(project == null)
-            {
-                return null;
-            }
-
             return await _context.Projects
-            .AsNoTracking()
-            .Include(p => p.Tasks)
-            .FirstOrDefaultAsync(p => p.Id == projectId);
+                .AsNoTracking()
+                .Include(p => p.Tasks)
+                .Include(p => p.Owner)
+                .Include(p => p.Memberships)
+                    .ThenInclude(m => m.User)
+                .FirstOrDefaultAsync(p => p.Id == projectId);
         }
 
         public async Task<Project?> UpdateProjectAsync(Project project)

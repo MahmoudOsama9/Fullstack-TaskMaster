@@ -1,0 +1,15 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: taskmaster-migration-job
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: migrator
+        image: mahmoudosama941/taskmaster-api:1.0.0
+        args: ["--migrate"]
+        env:
+          - name: ConnectionStrings__DefaultConnection
+            value: "Server=mssql-db-service;Database=TaskMasterDb_K8s;User Id=sa;Password=Mahmoud-941-K8s;TrustServerCertificate=True"

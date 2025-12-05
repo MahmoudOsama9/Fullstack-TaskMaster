@@ -1,6 +1,6 @@
 ﻿namespace TaskMaster.API.DTOs
 {
-    public record UpdateStatusDto(
+    public record UpdateTaskStatusDto(
         string Status
         );
 }

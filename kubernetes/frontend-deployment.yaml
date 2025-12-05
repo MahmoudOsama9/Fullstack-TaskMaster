@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskmaster-webapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: taskmaster-webapp
+  template:
+    metadata:
+      labels:
+        app: taskmaster-webapp
+    spec:
+      containers:
+      - name: webapp
+        image: mahmoudosama941/taskmaster-webapp:1.0.7 # Keep the working image!
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskmaster-webapp-service
+spec:
+  selector:
+    app: taskmaster-webapp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80

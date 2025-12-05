@@ -16,7 +16,7 @@ namespace TaskMaster.Core.Entities
         public DateTime DueDate { get; set; }
         public string Status { get; set; } = Stage.NotStarted.ToString();
 
-
+        public ICollection<ProjectMember> Memberships { get; set; } = new List<ProjectMember>();
         public int OwnerId { get; set; }
         public User Owner { get; set; } = default!;
         public ICollection<TaskItem> Tasks { get; set; } = new List<TaskItem>();

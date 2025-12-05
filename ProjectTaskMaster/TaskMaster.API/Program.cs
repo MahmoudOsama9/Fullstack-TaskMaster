@@ -1,7 +1,6 @@
-using Microsoft.AspNetCore.Authentication.Cookies;
+﻿using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -9,6 +8,7 @@ using Serilog;
 using StackExchange.Redis;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using TaskMaster.API;
 using TaskMaster.API.GraphQL;
 using TaskMaster.API.Hubs;
@@ -17,8 +17,8 @@ using TaskMaster.API.Services;
 using TaskMaster.Core.Interfaces;
 using TaskMaster.Infrastructure.Data;
 using TaskMaster.Infrastructure.Repositories;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
+// --- Serilog Bootstrap ---
 Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .WriteTo.Console()
@@ -30,308 +30,213 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Starting up the web host");
-
+    Log.Information("Starting TaskMaster API host");
     var builder = WebApplication.CreateBuilder(args);
 
-    var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
+    var isMigrationMode = args.Any(a => a.Contains("migrations", StringComparison.OrdinalIgnoreCase));
+    var disableHttps = Environment.GetEnvironmentVariable("DISABLE_HTTPS")?.ToLower() == "true";
+    var inContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
 
-    builder.Services.AddCors(options =>
+    builder.Host.UseSerilog();
+
+    var sqlConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    builder.Services.AddDbContext<TaskMasterDbContext>(options =>
+        options.UseSqlServer(sqlConnectionString));
+
+    if (!isMigrationMode)
     {
-        options.AddPolicy(name: MyAllowSpecificOrigins,
-            policy =>
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            if (!disableHttps && !inContainer)
             {
-                policy.WithOrigins("https://localhost:4200")
+                options.ListenLocalhost(5153, listen => listen.UseHttps());
+                options.ListenLocalhost(7200);
+            }
+            else
+            {
+                options.ListenAnyIP(80);
+            }
+        });
+
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+            {
+                policy.WithOrigins("https://localhost:4200", "http://localhost:4200")
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials();
             });
-    });
-
-
-
-    builder.Host.UseSerilog();
-
-    builder.WebHost.ConfigureKestrel(serverOptions =>
-    {
-        serverOptions.ListenLocalhost(5153, listenOptions =>
-        {
-            listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
-            listenOptions.UseHttps();
         });
-        serverOptions.ListenLocalhost(7189, listenOptions =>
+
+        builder.Services.AddControllers().AddJsonOptions(opts =>
         {
-            listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+            opts.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+            opts.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
         });
-    });
 
-    //builder.Services.AddOpenIddict().AddCore(
-    //    options =>
-    //    {
-    //        options.UseEntityFrameworkCore()
-    //        .UseDbContext<TaskMasterDbContext>();
-    //    })
-    //    .AddServer(
-    //    options =>
-    //    {
-    //        options.SetAuthorizationEndpointUris("connect/autherize")
-    //        .SetTokenEndpointUris("connect/token")
-    //        .SetUserInfoEndpointUris("connect/userinfo");
-
-    //        options.AllowAuthorizationCodeFlow();
-
-    //        options.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
-
-    //        options.AllowRefreshTokenFlow();
-
-    //        options.AddDevelopmentEncryptionCertificate()
-    //        .AddDevelopmentSigningCertificate();
-
-    //        options.UseAspNetCore()
-    //        .EnableTokenEndpointPassthrough()
-    //        .EnableAuthorizationEndpointPassthrough()
-    //        .EnableUserInfoEndpointPassthrough();
-    //    })
-    //    .AddValidation(
-    //    options =>
-    //        {
-    //            options.UseLocalServer();
-    //            options.UseAspNetCore();
-    //        });
-
-    builder.Services.AddOpenIddict()
-    .AddCore(options =>
-    {
-        options.UseEntityFrameworkCore()
-               .UseDbContext<TaskMasterDbContext>();
-    })
-    .AddServer(options =>
-    {
-        options.SetAuthorizationEndpointUris("connect/authorize")
-               .SetTokenEndpointUris("connect/token")
-               .SetUserInfoEndpointUris("connect/userinfo");
-
-        options.AllowClientCredentialsFlow();
-        options.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
-        options.AllowRefreshTokenFlow();
-
-        options.AddDevelopmentEncryptionCertificate()
-               .AddDevelopmentSigningCertificate();
-
-        options.UseAspNetCore()
-               .EnableTokenEndpointPassthrough()
-               .EnableAuthorizationEndpointPassthrough()
-               .EnableUserInfoEndpointPassthrough();
-    });
-    builder.Services.AddSignalR().AddJsonProtocol(options =>
-    {
-        // This tells SignalR to send property names as camelCase (e.g., "projectId")
-        // instead of PascalCase (e.g., "ProjectId") to match JavaScript conventions.
-        options.PayloadSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-    });
-
-    //var sqlConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    //builder.Services.AddDbContext<TaskMasterDbContext>(options =>
-    //    options.UseSqlServer(sqlConnectionString));
-
-    var sqlConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-
-    builder.Services.AddPooledDbContextFactory<TaskMasterDbContext>(options =>
-    options.UseSqlServer(sqlConnectionString));
-
-    builder.Services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<TaskMasterDbContext>>().CreateDbContext());
-
-    //builder.Services.AddAuthentication(options =>
-    //{
-    //    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    //    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    //})
-    //.AddJwtBearer(options =>
-    //{
-    //    options.TokenValidationParameters = new TokenValidationParameters
-    //    {
-    //        ValidateIssuer = true,
-    //        ValidateAudience = true,
-    //        ValidateLifetime = true,
-    //        ValidateIssuerSigningKey = true,
-    //        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-    //        ValidAudience = builder.Configuration["Jwt:Audience"],
-    //        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)),
-    //        NameClaimType = ClaimTypes.NameIdentifier
-    //    };
-    //});
-
-    //builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    //.AddJwtBearer(options =>
-    //{
-    //    options.TokenValidationParameters = new TokenValidationParameters
-    //    {
-    //        ValidateIssuer = true,
-    //        ValidateAudience = true,
-    //        ValidateLifetime = true,
-    //        ValidateIssuerSigningKey = true,
-    //        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-    //        ValidAudience = builder.Configuration["Jwt:Audience"],
-    //        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)),
-    //        NameClaimType = ClaimTypes.NameIdentifier
-    //    };
-    //})
-    //.AddGoogle(options =>
-    //{
-    //    options.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
-    //    options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
-    //});
-
-    builder.Services.AddAuthentication(options =>
-    {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-.AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
-.AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
-{
-    options.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
-    options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
-    options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)),
-        NameClaimType = ClaimTypes.NameIdentifier
-    };
-});
-
-    builder.Services.AddAuthorization();
-
-    builder.Services.AddRateLimiter(options =>
-    {
-        options.AddFixedWindowLimiter(policyName: "auth", opt =>
+        // --- Authentication ---
+        builder.Services.AddAuthentication(options =>
         {
-            opt.PermitLimit = 5;
-            opt.Window = TimeSpan.FromMinutes(1);
-        });
-        options.OnRejected = (context, token) =>
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
+        .AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
         {
-            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            return new ValueTask();
-        };
-    });
-
-    var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
-
-    builder.Services.AddSingleton<IConnectionMultiplexer>(
-        ConnectionMultiplexer.Connect(redisConnectionString!));
-
-    builder.Services.AddScoped<ProjectRepository>();
-
-    builder.Services.AddScoped<IProjectRepository, CachedProjectRepository>(sp =>
-    {
-        var projectRepository = sp.GetRequiredService<ProjectRepository>();
-        var multiplexer = sp.GetRequiredService<IConnectionMultiplexer>();
-        var logger = sp.GetRequiredService<ILogger<CachedProjectRepository>>();
-        return new CachedProjectRepository(projectRepository, multiplexer, logger);
-    });
-
-    builder.Services.AddHostedService<TestDataSeeder>();
-
-    builder.Services
-    .AddGraphQLServer()
-    .AddAuthorization()
-    .AddQueryType<Query>()
-    .AddTypeExtension<ProjectQueries>()
-    .AddMutationType<Mutation>()
-    .ModifyOptions(options => options.StrictValidation = true)
-    .AddProjections()
-    .AddFiltering()
-    .AddSorting();
-
-    builder.Services.AddControllers().AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-
-        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-    });
-    builder.Services.AddEndpointsApiExplorer();
-
-    builder.Services.AddSwaggerGen(options =>
-    {
-        options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            options.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
+            options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
+            options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
         {
-            In = ParameterLocation.Header,
-            Description = "Please enter a valid token",
-            Name = "Authorization",
-            Type = SecuritySchemeType.Http,
-            BearerFormat = "JWT",
-            Scheme = "Bearer"
-        });
-        options.AddSecurityRequirement(new OpenApiSecurityRequirement
-        {
+            options.TokenValidationParameters = new TokenValidationParameters
             {
-                new OpenApiSecurityScheme
-                {
-                    Reference = new OpenApiReference
-                    {
-                        Type=ReferenceType.SecurityScheme,
-                        Id="Bearer"
-                    }
-                },
-                new string[]{}
-            }
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = builder.Configuration["Jwt:Issuer"],
+                ValidAudience = builder.Configuration["Jwt:Audience"],
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)),
+                NameClaimType = ClaimTypes.NameIdentifier
+            };
         });
-    });
 
-    builder.Services.AddGrpc();
+        builder.Services.AddAuthorization();
 
-    builder.Services.AddGrpcReflection();
+        // --- Redis ---
+        builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+        {
+            var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+            var configuration = ConfigurationOptions.Parse(redisConnectionString!);
+            configuration.AbortOnConnectFail = false;
+            return ConnectionMultiplexer.Connect(configuration);
+        });
+
+        // --- Repositories ---
+        builder.Services.AddScoped<IInvitationRepository, InvitationRepository>();
+        builder.Services.AddScoped<ITaskRepository, TaskRepository>();
+        builder.Services.AddScoped<IChatRepository, ChatRepository>();
+        builder.Services.AddScoped<ProjectRepository>();
+        builder.Services.AddScoped<IProjectRepository>(sp =>
+        {
+            var realRepo = sp.GetRequiredService<ProjectRepository>();
+            var redis = sp.GetRequiredService<IConnectionMultiplexer>();
+            var logger = sp.GetRequiredService<ILogger<CachedProjectRepository>>();
+            return new CachedProjectRepository(realRepo, redis, logger);
+        });
+
+        // --- GraphQL, gRPC, SignalR ---
+        builder.Services.AddGraphQLServer()
+               .AddAuthorization()
+               .AddQueryType<ProjectQueries>()
+               .AddMutationType<Mutation>()
+               .AddProjections().AddFiltering().AddSorting();
+
+        builder.Services.AddGrpc();
+        builder.Services.AddGrpcReflection();
+        builder.Services.AddSignalR().AddJsonProtocol(opts =>
+        {
+            opts.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        });
+
+        // --- Swagger ---
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen(opt =>
+        {
+            opt.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                In = ParameterLocation.Header,
+                Description = "Please enter a valid token",
+                Name = "Authorization",
+                Type = SecuritySchemeType.Http,
+                BearerFormat = "JWT",
+                Scheme = "Bearer"
+            });
+            opt.AddSecurityRequirement(new OpenApiSecurityRequirement
+            {
+                {
+                    new OpenApiSecurityScheme
+                    {
+                        Reference = new OpenApiReference
+                        {
+                            Type=ReferenceType.SecurityScheme,
+                            Id="Bearer"
+                        }
+                    },
+                    Array.Empty<string>()
+                }
+            });
+        });
+
+        // --- OpenIddict ---
+        builder.Services.AddOpenIddict()
+            .AddCore(options =>
+            {
+                options.UseEntityFrameworkCore()
+                       .UseDbContext<TaskMasterDbContext>();
+            })
+            .AddServer(options =>
+            {
+                options.SetAuthorizationEndpointUris("connect/authorize")
+                       .SetTokenEndpointUris("connect/token")
+                       .SetUserInfoEndpointUris("connect/userinfo");
+
+                options.AllowClientCredentialsFlow();
+                options.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
+                options.AllowRefreshTokenFlow();
+
+                options.AddDevelopmentEncryptionCertificate()
+                       .AddDevelopmentSigningCertificate();
+
+                options.UseAspNetCore()
+                       .EnableTokenEndpointPassthrough()
+                       .EnableAuthorizationEndpointPassthrough()
+                       .EnableUserInfoEndpointPassthrough();
+            });
+    }
 
     var app = builder.Build();
 
-    app.UseMiddleware<CorrelationIdMiddleware>();
-
-    app.UseSerilogRequestLogging();
-    app.UseRateLimiter();
-
-    if (app.Environment.IsDevelopment())
+    // --- Migrations Mode ---
+    if (isMigrationMode)
     {
+        Console.WriteLine("🔧 Running EF Core Migrations...");
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TaskMasterDbContext>();
+        db.Database.Migrate();
+        Console.WriteLine("✅ EF Migrations completed successfully.");
+        return;
+    }
+
+    // --- Middleware Pipeline ---
+    app.UseMiddleware<CorrelationIdMiddleware>();
+    app.UseSerilogRequestLogging();
+
+    if (app.Environment.IsDevelopment() && !inContainer)
+    {
+        app.UseHttpsRedirection();
         app.UseSwagger();
         app.UseSwaggerUI();
-
         app.MapGrpcReflectionService();
     }
-    app.UseHttpsRedirection();
-    
+
+    if (!disableHttps && !inContainer)
+        app.UseHttpsRedirection();
+
     app.UseRouting();
-
-    app.UseCors(MyAllowSpecificOrigins);
-
-
-
+    app.UseCors();
     app.UseAuthentication();
     app.UseAuthorization();
 
-    app.MapHub<ProjectUpdatesHub>("/project-updates");
-
-    app.MapGraphQL("/graphql")
-.RequireAuthorization();
-
+    // --- Endpoints ---
+    app.MapControllers();
+    app.MapGraphQL("/graphql").RequireAuthorization();
+    app.MapHub<ProjectUpdatesHub>("/project-updates").RequireAuthorization();
     app.MapGrpcService<ProjectReporterService>();
 
-    app.MapControllers();
-
-
-
-
-
     app.Run();
-
 }
 catch (Exception ex)
 {

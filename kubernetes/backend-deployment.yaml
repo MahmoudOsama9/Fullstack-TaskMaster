@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskmaster-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: taskmaster-api
+  template:
+    metadata:
+      labels:
+        app: taskmaster-api
+    spec:
+      containers:
+      - name: api
+        image: mahmoudosama941/taskmaster-api:1.0.6
+        ports:
+        - containerPort: 80
+        env:
+          - name: ConnectionStrings__DefaultConnection
+            value: "Server=mssql-db-service;Database=TaskMasterDb_K8s;User Id=sa;Password=Mahmoud-941-K8s;TrustServerCertificate=True"
+          - name: ConnectionStrings__Redis
+            value: "redis-cache-service:6379"
+          - name: DISABLE_HTTPS
+            value: "true"
+          - name: ASPNETCORE_URLS
+            value: "http://+:80"
+        imagePullPolicy: IfNotPresent
+      restartPolicy: Always
